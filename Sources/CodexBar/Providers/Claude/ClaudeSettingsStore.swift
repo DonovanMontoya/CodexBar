@@ -104,6 +104,17 @@ extension SettingsStore {
         }
     }
 
+    /// The persisted usage source, restricted to profile-scoped paths while a profile directory is
+    /// selected: explicit API/Web modes depend on provider-wide credentials that a profile deliberately
+    /// strips, so they resolve as Auto (OAuth -> CLI) instead of failing.
+    var claudeEffectiveUsageDataSource: ClaudeUsageDataSource {
+        let source = self.claudeUsageDataSource
+        guard self.profileClaudeConfigDir(forActiveSource: self.claudeResolvedActiveSource) != nil else {
+            return source
+        }
+        return source == .oauth || source == .cli ? source : .auto
+    }
+
     /// A persisted profile selection whose directory left the allow-list falls back to the ambient account.
     var claudeResolvedActiveSource: ClaudeActiveSource {
         guard let path = self.profileClaudeConfigDir(forActiveSource: self.claudeActiveSource) else {
@@ -177,11 +188,8 @@ extension SettingsStore {
         // cookies, browser-cookie import, and the Admin API cannot be attributed to a directory, so
         // fetches are restricted to the profile-scoped OAuth and CLI paths.
         if self.profileClaudeConfigDir(forActiveSource: self.claudeResolvedActiveSource) != nil {
-            let usageDataSource = self.claudeUsageDataSource
             return ProviderSettingsSnapshot.ClaudeProviderSettings(
-                usageDataSource: usageDataSource == .oauth || usageDataSource == .cli
-                    ? usageDataSource
-                    : .auto,
+                usageDataSource: self.claudeEffectiveUsageDataSource,
                 webExtrasEnabled: false,
                 cookieSource: .off,
                 manualCookieHeader: "",

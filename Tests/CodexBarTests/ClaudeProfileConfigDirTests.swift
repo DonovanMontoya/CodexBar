@@ -493,6 +493,33 @@ struct ClaudeProfileConfigDirTests {
 
     @Test
     @MainActor
+    func `selected profile restricts persisted api and web sources to profile paths`() throws {
+        let suite = "ClaudeProfileConfigDirTests-source-routing"
+        let settings = try Self.makeSettings(suite: suite)
+        settings.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = ["/tmp/claude-work"]
+        }
+
+        for persisted in [ClaudeUsageDataSource.api, .web] {
+            settings.claudeUsageDataSource = persisted
+            settings.claudeActiveSource = .profileConfigDir(path: "/tmp/claude-work")
+            #expect(settings.claudeEffectiveUsageDataSource == .auto)
+            #expect(ProviderRegistry.resolvedSourceMode(
+                provider: .claude,
+                settings: settings,
+                account: nil) == .auto)
+
+            settings.claudeActiveSource = .ambient
+            #expect(settings.claudeEffectiveUsageDataSource == persisted)
+        }
+
+        settings.claudeUsageDataSource = .cli
+        settings.claudeActiveSource = .profileConfigDir(path: "/tmp/claude-work")
+        #expect(settings.claudeEffectiveUsageDataSource == .cli)
+    }
+
+    @Test
+    @MainActor
     func `claude menu hides account directory submenu without configured dirs`() throws {
         let suite = "ClaudeProfileConfigDirTests-menu-hidden"
         let settings = try Self.makeSettings(suite: suite)

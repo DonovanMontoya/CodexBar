@@ -64,7 +64,9 @@ struct ClaudeProviderImplementation: ProviderImplementation {
 
     @MainActor
     func sourceMode(context: ProviderSourceModeContext) -> ProviderSourceMode {
-        switch context.settings.claudeUsageDataSource {
+        // Strategy routing must honor the same profile restriction as the settings snapshot: a saved
+        // API/Web source would otherwise bypass the profile's OAuth/CLI-only credential contract.
+        switch context.settings.claudeEffectiveUsageDataSource {
         case .auto: .auto
         case .api: .api
         case .oauth: .oauth
