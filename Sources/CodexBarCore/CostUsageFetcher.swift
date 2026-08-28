@@ -672,7 +672,8 @@ public struct CostUsageFetcher: Sendable {
                 }
             }
             if options.includePiSessions,
-               provider == .claude || (provider == .codex && options.shouldMergePiUsage)
+               options.shouldMergePiUsage,
+               provider == .claude || provider == .codex
             {
                 let piReport = try PiSessionCostScanner.loadDailyReportCancellable(
                     provider: provider,

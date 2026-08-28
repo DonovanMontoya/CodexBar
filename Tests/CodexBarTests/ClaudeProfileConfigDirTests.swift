@@ -392,6 +392,62 @@ struct ClaudeProfileConfigDirTests {
     }
 
     @Test
+    func `selected claude profile excludes ambient pi sessions from local cost`() async throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 4, day: 8)
+        _ = try env.writePiSessionFile(
+            relativePath: "2026-04-08T10-00-00-000Z_claude.jsonl",
+            contents: env.jsonl([[
+                "type": "message",
+                "timestamp": env.isoString(for: day),
+                "message": [
+                    "role": "assistant",
+                    "provider": "anthropic",
+                    "model": "claude-sonnet-4-5",
+                    "usage": ["input": 50, "output": 5, "totalTokens": 55],
+                ],
+            ]]))
+        let profileRoot = env.root.appendingPathComponent("claude-profile", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: profileRoot.appendingPathComponent("projects", isDirectory: true),
+            withIntermediateDirectories: true)
+
+        var options = CostUsageScanner.Options(cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        let piOptions = PiSessionCostScanner.Options(
+            piSessionsRoot: env.piSessionsRoot,
+            cacheRoot: env.cacheRoot,
+            refreshMinIntervalSeconds: 0)
+
+        let ambient = try await CostUsageFetcher.loadTokenSnapshot(
+            provider: .claude,
+            environment: ["HOME": env.root.path],
+            now: day,
+            historyDays: 1,
+            allowPricingRefresh: false,
+            includePiSessions: true,
+            scannerOptions: options,
+            piScannerOptions: piOptions)
+        let scoped = try await CostUsageFetcher.loadTokenSnapshot(
+            provider: .claude,
+            environment: [
+                "HOME": env.root.path,
+                ClaudeConfigPaths.configDirectoryEnvironmentKey: profileRoot.path,
+            ],
+            now: day.addingTimeInterval(1),
+            historyDays: 1,
+            allowPricingRefresh: false,
+            includePiSessions: true,
+            scannerOptions: options,
+            piScannerOptions: piOptions)
+
+        // The ambient default profile keeps merging home-level pi sessions; a selected profile must not.
+        #expect(ambient.sessionTokens == 55)
+        #expect(scoped.sessionTokens == 0)
+    }
+
+    @Test
     @MainActor
     func `claude menu hides account directory submenu without configured dirs`() throws {
         let suite = "ClaudeProfileConfigDirTests-menu-hidden"
