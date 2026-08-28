@@ -59,7 +59,7 @@ struct ClaudeProviderImplementation: ProviderImplementation {
 
     @MainActor
     func defaultSourceLabel(context: ProviderSourceLabelContext) -> String? {
-        context.settings.claudeUsageDataSource.rawValue
+        context.settings.claudeEffectiveUsageDataSource.rawValue
     }
 
     @MainActor
@@ -270,12 +270,19 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                 id: "claude-usage-source",
                 title: "Usage source",
                 subtitle: "Auto falls back to the next source if the preferred one fails.",
+                dynamicSubtitle: {
+                    guard context.settings.claudeEffectiveUsageDataSource
+                        != context.settings.claudeUsageDataSource
+                    else { return nil }
+                    return "The selected account directory uses profile credentials only, " +
+                        "so this choice runs as Auto (OAuth, then CLI) until Default is selected."
+                },
                 binding: usageBinding,
                 options: usageOptions,
                 isVisible: nil,
                 onChange: nil,
                 trailingText: {
-                    guard context.settings.claudeUsageDataSource == .auto else { return nil }
+                    guard context.settings.claudeEffectiveUsageDataSource == .auto else { return nil }
                     let label = context.store.sourceLabel(for: .claude)
                     return label == "auto" ? nil : label
                 }),

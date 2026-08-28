@@ -520,6 +520,33 @@ struct ClaudeProfileConfigDirTests {
 
     @Test
     @MainActor
+    func `usage source picker explains the profile restriction for api and web choices`() throws {
+        let suite = "ClaudeProfileConfigDirTests-picker-honesty"
+        let settings = try Self.makeSettings(suite: suite)
+        let store = UsageStore(
+            fetcher: UsageFetcher(),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            environmentBase: ["HOME": FileManager.default.homeDirectoryForCurrentUser.path])
+        settings.claudeUsageDataSource = .api
+        settings.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = ["/tmp/claude-work"]
+        }
+        let pane = ProvidersPane(settings: settings, store: store)
+
+        settings.claudeActiveSource = .profileConfigDir(path: "/tmp/claude-work")
+        let restricted = pane._test_settingsPickers(for: .claude)
+            .first { $0.id == "claude-usage-source" }
+        #expect(restricted?.dynamicSubtitle?()?.contains("runs as Auto") == true)
+
+        settings.claudeActiveSource = .ambient
+        let ambient = pane._test_settingsPickers(for: .claude)
+            .first { $0.id == "claude-usage-source" }
+        #expect(ambient?.dynamicSubtitle?() == nil)
+    }
+
+    @Test
+    @MainActor
     func `claude menu hides account directory submenu without configured dirs`() throws {
         let suite = "ClaudeProfileConfigDirTests-menu-hidden"
         let settings = try Self.makeSettings(suite: suite)
