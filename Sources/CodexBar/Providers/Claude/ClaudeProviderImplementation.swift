@@ -346,7 +346,13 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                 "Also editable as claudeProfileConfigDirs in ~/.codexbar/config.json.",
             binding: accountDirectoryBinding,
             options: accountDirectoryOptions,
-            isVisible: nil,
+            isVisible: {
+                // Hidden while claude-swap owns account presentation: one switcher stays authoritative.
+                !ClaudeSwapMenuPrecedence.prefersClaudeSwap(
+                    provider: .claude,
+                    accountCount: context.store.claudeSwapAccountSnapshots.count,
+                    showSingleAccount: context.settings.claudeSwapShowSingleAccount)
+            },
             onChange: { _ in
                 await context.store.refreshProvider(.claude)
                 await context.store.refreshTokenUsageNow(for: .claude, force: true)
@@ -455,6 +461,13 @@ struct ClaudeProviderImplementation: ProviderImplementation {
     func appendActionMenuEntries(context: ProviderMenuActionContext, entries: inout [ProviderMenuEntry]) {
         let profileDirs = context.settings.claudeProfileConfigDirs
         guard !profileDirs.isEmpty else { return }
+        // While claude-swap owns Claude account presentation, a directory switcher would change an
+        // invisible ambient state behind the swap cards; exactly one account switcher stays visible.
+        guard !ClaudeSwapMenuPrecedence.prefersClaudeSwap(
+            provider: context.provider,
+            accountCount: context.store.claudeSwapAccountSnapshots.count,
+            showSingleAccount: context.settings.claudeSwapShowSingleAccount)
+        else { return }
 
         let activeSource = context.settings.claudeResolvedActiveSource
         let ambientChecked = activeSource == .ambient

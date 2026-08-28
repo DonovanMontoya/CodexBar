@@ -562,6 +562,54 @@ struct ClaudeProfileConfigDirTests {
 
     @Test
     @MainActor
+    func `claude-swap presentation hides the account directory submenu`() throws {
+        let suite = "ClaudeProfileConfigDirTests-swap-precedence"
+        let settings = try Self.makeSettings(suite: suite)
+        settings.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = ["/tmp/claude-work"]
+        }
+        let fetcher = UsageFetcher()
+        let store = UsageStore(
+            fetcher: fetcher,
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            environmentBase: ["HOME": FileManager.default.homeDirectoryForCurrentUser.path])
+        let now = Date(timeIntervalSince1970: 1_782_000_000)
+        store.claudeSwapAccountSnapshots = ClaudeSwapAccountProjection.accountSnapshots(
+            from: ClaudeSwapAccountList(
+                activeAccountNumber: 1,
+                accounts: (1...2).map { number in
+                    ClaudeSwapAccountRow(
+                        number: number,
+                        email: "account\(number)@example.com",
+                        isActive: number == 1,
+                        usageStatus: .ok,
+                        fiveHour: ClaudeSwapUsageWindow(
+                            usedPercent: 20,
+                            resetsAt: now.addingTimeInterval(3600)),
+                        sevenDay: nil,
+                        scoped: [])
+                }),
+            now: now)
+
+        let hasSubmenu = MenuDescriptor.build(
+            provider: .claude,
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updateReady: false)
+            .sections
+            .flatMap(\.entries)
+            .contains { entry in
+                guard case let .submenu(title, _, _) = entry else { return false }
+                return title == "Account Directory"
+            }
+
+        #expect(hasSubmenu == false)
+    }
+
+    @Test
+    @MainActor
     func `claude menu hides account directory submenu without configured dirs`() throws {
         let suite = "ClaudeProfileConfigDirTests-menu-hidden"
         let settings = try Self.makeSettings(suite: suite)
