@@ -122,6 +122,50 @@ struct ClaudeProfileConfigDirTests {
     }
 
     @Test
+    func `scoped environment strips provider-wide credential authorities`() {
+        let base = [
+            "HOME": "/Users/example",
+            ClaudeAdminAPISettingsReader.adminAPIKeyEnvironmentKey: "sk-ant-admin-test",
+            ClaudeAdminAPISettingsReader.alternateAdminAPIKeyEnvironmentKey: "sk-ant-admin-alt",
+            ClaudeOAuthCredentialsStore.environmentTokenKey: "sk-ant-oat-ambient",
+            ClaudeOAuthCredentialsStore.environmentScopesKey: "user:profile",
+        ]
+
+        let scoped = ClaudeConfigDirScope.scopedEnvironment(base: base, configDir: "/tmp/claude-work")
+
+        #expect(scoped[ClaudeAdminAPISettingsReader.adminAPIKeyEnvironmentKey] == nil)
+        #expect(scoped[ClaudeAdminAPISettingsReader.alternateAdminAPIKeyEnvironmentKey] == nil)
+        #expect(scoped[ClaudeOAuthCredentialsStore.environmentTokenKey] == nil)
+        #expect(scoped[ClaudeOAuthCredentialsStore.environmentScopesKey] == nil)
+    }
+
+    @Test
+    @MainActor
+    func `selected profile restricts snapshot to profile-scoped credential paths`() throws {
+        let suite = "ClaudeProfileConfigDirTests-snapshot-authority"
+        let settings = try Self.makeSettings(suite: suite)
+        settings.claudeAdminAPIKey = "sk-ant-admin-test"
+        settings.claudeCookieHeader = "sessionKey=sk-ant-ambient"
+        settings.claudeCookieSource = .manual
+        settings.claudeUsageDataSource = .web
+        settings.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = ["/tmp/claude-work"]
+        }
+
+        settings.claudeActiveSource = .profileConfigDir(path: "/tmp/claude-work")
+        let scoped = settings.claudeSettingsSnapshot(tokenOverride: nil)
+        #expect(scoped.cookieSource == .off)
+        #expect(scoped.manualCookieHeader?.isEmpty != false)
+        #expect(scoped.usageDataSource == .auto)
+        #expect(scoped.webExtrasEnabled == false)
+
+        settings.claudeActiveSource = .ambient
+        let ambient = settings.claudeSettingsSnapshot(tokenOverride: nil)
+        #expect(ambient.cookieSource == .manual)
+        #expect(ambient.manualCookieHeader == "sessionKey=sk-ant-ambient")
+    }
+
+    @Test
     func `claude keychain service targets the profile-suffixed item for custom config dirs`() {
         let base = ["HOME": "/Users/example"]
 

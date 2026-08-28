@@ -39,6 +39,13 @@ public enum ClaudeConfigDirScope {
         env[ClaudeConfigPaths.configDirectoryEnvironmentKey] = configDir
         // An ambient secure-storage override would resolve credentials outside the selected profile.
         env.removeValue(forKey: ClaudeConfigPaths.secureStorageDirectoryEnvironmentKey)
+        // The selected directory is the sole credential authority: provider-wide Admin API keys and
+        // ambient OAuth token overrides belong to no particular profile and must not answer for one.
+        for key in ClaudeAdminAPISettingsReader.apiKeyEnvironmentKeys {
+            env.removeValue(forKey: key)
+        }
+        env.removeValue(forKey: ClaudeOAuthCredentialsStore.environmentTokenKey)
+        env.removeValue(forKey: ClaudeOAuthCredentialsStore.environmentScopesKey)
         return env
     }
 }

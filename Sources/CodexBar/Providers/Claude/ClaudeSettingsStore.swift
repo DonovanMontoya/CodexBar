@@ -173,6 +173,20 @@ extension SettingsStore {
 extension SettingsStore {
     func claudeSettingsSnapshot(tokenOverride: TokenAccountOverride?) -> ProviderSettingsSnapshot
     .ClaudeProviderSettings {
+        // A selected profile config directory is the sole credential authority. Provider-wide manual
+        // cookies, browser-cookie import, and the Admin API cannot be attributed to a directory, so
+        // fetches are restricted to the profile-scoped OAuth and CLI paths.
+        if self.profileClaudeConfigDir(forActiveSource: self.claudeResolvedActiveSource) != nil {
+            let usageDataSource = self.claudeUsageDataSource
+            return ProviderSettingsSnapshot.ClaudeProviderSettings(
+                usageDataSource: usageDataSource == .oauth || usageDataSource == .cli
+                    ? usageDataSource
+                    : .auto,
+                webExtrasEnabled: false,
+                cookieSource: .off,
+                manualCookieHeader: "",
+                organizationID: nil)
+        }
         let account = self.selectedClaudeTokenAccount(tokenOverride: tokenOverride)
         let routing = self.claudeCredentialRouting(account: account)
         return ProviderSettingsSnapshot.ClaudeProviderSettings(
