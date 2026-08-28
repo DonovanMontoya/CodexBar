@@ -80,6 +80,82 @@ extension SettingsStore {
         }
     }
 
+    private static func normalizedClaudeProfileConfigDirs(_ paths: [String]?) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for path in (paths ?? []).compactMap({ ClaudeConfigDirScope.normalizedConfigDirPath($0) }) {
+            guard seen.insert(path).inserted else { continue }
+            result.append(path)
+        }
+        return result
+    }
+
+    var claudeProfileConfigDirs: [String] {
+        Self.normalizedClaudeProfileConfigDirs(
+            self.configSnapshot.providerConfig(for: .claude)?.claudeProfileConfigDirs)
+    }
+
+    var claudeActiveSource: ClaudeActiveSource {
+        get { self.configSnapshot.providerConfig(for: .claude)?.claudeActiveSource ?? .ambient }
+        set {
+            self.updateProviderConfig(provider: .claude) { entry in
+                entry.claudeActiveSource = newValue
+            }
+        }
+    }
+
+    /// A persisted profile selection whose directory left the allow-list falls back to the ambient account.
+    var claudeResolvedActiveSource: ClaudeActiveSource {
+        guard let path = self.profileClaudeConfigDir(forActiveSource: self.claudeActiveSource) else {
+            return .ambient
+        }
+        return .profileConfigDir(path: path)
+    }
+
+    @discardableResult
+    func addClaudeProfileConfigDir(_ path: String) -> Bool {
+        guard let normalizedPath = ClaudeConfigDirScope.normalizedConfigDirPath(path),
+              !self.claudeProfileConfigDirs.contains(normalizedPath)
+        else {
+            return false
+        }
+        let stored = (self.configSnapshot.providerConfig(for: .claude)?.claudeProfileConfigDirs ?? []) +
+            [ClaudeConfigDirScope.abbreviatedConfigDirPath(normalizedPath)]
+        self.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = stored
+        }
+        self.logProviderModeChange(provider: .claude, field: "claudeProfileConfigDirs", value: "added")
+        return true
+    }
+
+    func removeClaudeProfileConfigDir(_ path: String) {
+        guard let normalizedPath = ClaudeConfigDirScope.normalizedConfigDirPath(path) else { return }
+        let remaining = (self.configSnapshot.providerConfig(for: .claude)?.claudeProfileConfigDirs ?? [])
+            .filter { ClaudeConfigDirScope.normalizedConfigDirPath($0) != normalizedPath }
+        self.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = remaining.isEmpty ? nil : remaining
+        }
+        // Keep the persisted selection valid: a removed directory falls back to the ambient account.
+        if self.claudeActiveSource != .ambient,
+           self.profileClaudeConfigDir(forActiveSource: self.claudeActiveSource) == nil
+        {
+            self.claudeActiveSource = .ambient
+        }
+        self.logProviderModeChange(provider: .claude, field: "claudeProfileConfigDirs", value: "removed")
+    }
+
+    func profileClaudeConfigDir(forActiveSource source: ClaudeActiveSource) -> String? {
+        guard case let .profileConfigDir(path) = source else {
+            return nil
+        }
+        guard let normalizedPath = ClaudeConfigDirScope.normalizedConfigDirPath(path),
+              self.claudeProfileConfigDirs.contains(normalizedPath)
+        else {
+            return nil
+        }
+        return normalizedPath
+    }
+
     var claudeSwapExecutablePath: String {
         get { self.configSnapshot.providerConfig(for: .claude)?.sanitizedClaudeSwapExecutablePath ?? "" }
         set {
@@ -190,5 +266,20 @@ extension SettingsStore {
             provider: .claude,
             settings: self,
             override: tokenOverride)
+    }
+}
+
+extension SettingsStore {
+    /// Switching profiles must not let the previous account's cached credentials or throttled CLI
+    /// result answer the next fetch. Both the old and new profile scopes are invalidated because the
+    /// stale entry can live under either identity.
+    func invalidateClaudeProfileCaches(around sources: [ClaudeActiveSource]) {
+        let base = ProcessInfo.processInfo.environment
+        for source in sources {
+            let environment = ClaudeConfigDirScope.scopedEnvironment(
+                base: base,
+                configDir: self.profileClaudeConfigDir(forActiveSource: source))
+            ClaudeOAuthCredentialsStore.invalidateCache(environment: environment)
+        }
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import CodexBarCore
 import SwiftUI
 
@@ -29,6 +30,8 @@ struct ClaudeProviderImplementation: ProviderImplementation {
         _ = settings.claudeSwapEnabled
         _ = settings.claudeSwapShowSingleAccount
         _ = settings.claudeSwapExecutablePath
+        _ = settings.claudeActiveSource
+        _ = settings.claudeProfileConfigDirs
     }
 
     @MainActor
@@ -249,6 +252,7 @@ struct ClaudeProviderImplementation: ProviderImplementation {
         }
 
         return [
+            Self.accountDirectoryPicker(context: context),
             ProviderSettingsPickerDescriptor(
                 id: "claude-usage-source",
                 title: "Usage source",
@@ -285,6 +289,84 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                     ProviderCookieSourceUI.cachedTrailingText(provider: .claude)
                 }),
         ]
+    }
+
+    @MainActor
+    private static func accountDirectoryPicker(
+        context: ProviderSettingsContext) -> ProviderSettingsPickerDescriptor
+    {
+        let ambientDirectoryOptionID = "ambient"
+        let accountDirectoryBinding = Binding(
+            get: {
+                switch context.settings.claudeResolvedActiveSource {
+                case .ambient: ambientDirectoryOptionID
+                case let .profileConfigDir(path): path
+                }
+            },
+            set: { raw in
+                let previousSource = context.settings.claudeResolvedActiveSource
+                context.settings.claudeActiveSource = raw == ambientDirectoryOptionID
+                    ? .ambient
+                    : .profileConfigDir(path: raw)
+                context.settings.invalidateClaudeProfileCaches(
+                    around: [previousSource, context.settings.claudeResolvedActiveSource])
+            })
+        let accountDirectoryOptions = [
+            ProviderSettingsPickerOption(id: ambientDirectoryOptionID, title: "Default (~/.claude)"),
+        ] + context.settings.claudeProfileConfigDirs.map {
+            ProviderSettingsPickerOption(id: $0, title: ClaudeConfigDirScope.abbreviatedConfigDirPath($0))
+        }
+
+        return ProviderSettingsPickerDescriptor(
+            id: "claude-account-directory",
+            title: "Account directory",
+            subtitle: "Tracks another Claude account by its CLAUDE_CONFIG_DIR directory. " +
+                "Also editable as claudeProfileConfigDirs in ~/.codexbar/config.json.",
+            binding: accountDirectoryBinding,
+            options: accountDirectoryOptions,
+            isVisible: nil,
+            onChange: { _ in
+                await context.store.refreshProvider(.claude)
+                await context.store.refreshTokenUsageNow(for: .claude, force: true)
+            },
+            trailingActions: [
+                ProviderSettingsActionDescriptor(
+                    id: "claude-account-directory-add",
+                    title: "Add…",
+                    style: .bordered,
+                    isVisible: nil,
+                    perform: { @MainActor in
+                        let panel = NSOpenPanel()
+                        panel.allowsMultipleSelection = true
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.showsHiddenFiles = true
+                        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+                        panel.message =
+                            "Choose Claude config directories (CLAUDE_CONFIG_DIR profiles)."
+                        guard panel.runModal() == .OK else { return }
+                        for url in panel.urls {
+                            context.settings.addClaudeProfileConfigDir(url.path)
+                        }
+                    }),
+                ProviderSettingsActionDescriptor(
+                    id: "claude-account-directory-remove",
+                    title: "Remove",
+                    style: .bordered,
+                    isVisible: {
+                        if case .profileConfigDir = context.settings.claudeResolvedActiveSource {
+                            return true
+                        }
+                        return false
+                    },
+                    perform: { @MainActor in
+                        guard case let .profileConfigDir(path) = context.settings
+                            .claudeResolvedActiveSource
+                        else { return }
+                        context.settings.removeClaudeProfileConfigDir(path)
+                        await context.store.refreshProvider(.claude)
+                    }),
+            ])
     }
 
     @MainActor
@@ -345,6 +427,34 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                 entries.append(.text("\(label): \(value)", .primary))
             }
         }
+    }
+
+    @MainActor
+    func appendActionMenuEntries(context: ProviderMenuActionContext, entries: inout [ProviderMenuEntry]) {
+        let profileDirs = context.settings.claudeProfileConfigDirs
+        guard !profileDirs.isEmpty else { return }
+
+        let activeSource = context.settings.claudeResolvedActiveSource
+        let ambientChecked = activeSource == .ambient
+        var items = [
+            MenuDescriptor.SubmenuItem(
+                title: "Default (~/.claude)",
+                action: .selectClaudeProfileDir(path: nil),
+                isEnabled: !ambientChecked,
+                isChecked: ambientChecked),
+        ]
+        for dir in profileDirs {
+            let isChecked = activeSource == .profileConfigDir(path: dir)
+            items.append(MenuDescriptor.SubmenuItem(
+                title: ClaudeConfigDirScope.abbreviatedConfigDirPath(dir),
+                action: .selectClaudeProfileDir(path: dir),
+                isEnabled: !isChecked,
+                isChecked: isChecked))
+        }
+        entries.append(.submenu(
+            "Account Directory",
+            MenuDescriptor.MenuActionSystemImage.systemAccount.rawValue,
+            items))
     }
 
     @MainActor

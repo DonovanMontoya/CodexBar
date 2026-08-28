@@ -464,11 +464,16 @@ public struct CostUsageFetcher: Sendable {
             overrideScannerOptions,
             provider: provider,
             codexHomePath: codexHomePath)
+        let claudeCacheScopeKey = Self.applyClaudeProfileScope(
+            to: &options,
+            provider: provider,
+            environment: environment)
         // Rolling window is inclusive, so a 30-day display starts 29 days before `now`.
         let since = options.calendar.date(byAdding: .day, value: -(clampedHistoryDays - 1), to: now) ?? now
-        let scopedCodexHomePath = codexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Provider-specific by design: scoped Codex homes exclude ambient Pi sessions from managed-profile totals.
-        let shouldMergePiUsage = provider != .codex || scopedCodexHomePath?.isEmpty != false
+        let shouldMergePiUsage = Self.shouldMergePiUsage(
+            provider: provider,
+            codexHomePath: codexHomePath,
+            claudeCacheScopeKey: claudeCacheScopeKey)
         await Self.refreshPricingIfAllowed(
             options: PricingRefreshOptions(
                 provider: provider,
@@ -562,6 +567,40 @@ public struct CostUsageFetcher: Sendable {
         let shouldMergePiUsage: Bool
         let scanOptions: CostUsageScanner.Options
         let piOptions: PiSessionCostScanner.Options
+    }
+
+    /// Provider-specific by design: scoped Codex homes and scoped Claude profiles exclude ambient Pi
+    /// sessions from profile totals.
+    private static func shouldMergePiUsage(
+        provider: UsageProvider,
+        codexHomePath: String?,
+        claudeCacheScopeKey: String?) -> Bool
+    {
+        switch provider {
+        case .codex: codexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        case .claude: claudeCacheScopeKey == nil
+        default: true
+        }
+    }
+
+    /// A scoped Claude profile scans that profile's projects roots into a profile-partitioned cache;
+    /// the ambient scanner environment would silently blend accounts. Returns the profile scope key.
+    private static func applyClaudeProfileScope(
+        to options: inout CostUsageScanner.Options,
+        provider: UsageProvider,
+        environment: [String: String]) -> String?
+    {
+        guard provider == .claude else { return nil }
+        let scopeKey = CostUsageScanner.claudeCacheScopeKey(environment: environment)
+        if options.claudeProjectsRoots == nil, scopeKey != nil {
+            options.claudeProjectsRoots = CostUsageScanner.defaultClaudeProjectsRoots(
+                options: options,
+                environment: environment)
+        }
+        if options.claudeCacheScopeKey == nil {
+            options.claudeCacheScopeKey = scopeKey
+        }
+        return scopeKey
     }
 
     private static func loadLocalTokenScanResult(
