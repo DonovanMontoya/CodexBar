@@ -265,13 +265,16 @@ struct ClaudeProfileConfigDirTests {
 
     @MainActor
     private static func claudeMenuSubmenus(
-        settings: SettingsStore) -> [(String, [MenuDescriptor.SubmenuItem])]
+        settings: SettingsStore,
+        environmentBase: [String: String] = ["HOME": FileManager.default.homeDirectoryForCurrentUser.path])
+        -> [(String, [MenuDescriptor.SubmenuItem])]
     {
         let fetcher = UsageFetcher()
         let store = UsageStore(
             fetcher: fetcher,
             browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings)
+            settings: settings,
+            environmentBase: environmentBase)
         return MenuDescriptor.build(
             provider: .claude,
             store: store,
@@ -307,6 +310,85 @@ struct ClaudeProfileConfigDirTests {
             .selectClaudeProfileDir(path: "/tmp/claude-work"),
             .selectClaudeProfileDir(path: "/tmp/claude-other"),
         ])
+    }
+
+    @Test
+    @MainActor
+    func `default entry labels an ambient config dir from the environment`() throws {
+        let suite = "ClaudeProfileConfigDirTests-menu-ambient-label"
+        let settings = try Self.makeSettings(suite: suite)
+        settings.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = ["/tmp/claude-work"]
+        }
+
+        let submenu = try #require(Self.claudeMenuSubmenus(
+            settings: settings,
+            environmentBase: [
+                "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+                ClaudeConfigPaths.configDirectoryEnvironmentKey: "/tmp/claude-ambient",
+            ])
+            .first(where: { $0.0 == "Account Directory" }))
+
+        #expect(submenu.1.first?.title == "Default (/tmp/claude-ambient, from environment)")
+    }
+
+    @Test
+    @MainActor
+    func `selected profile directory suppresses saved claude token accounts`() throws {
+        let suite = "ClaudeProfileConfigDirTests-token-authority"
+        let settings = try Self.makeSettings(suite: suite)
+        settings.claudeCookieSource = .manual
+        settings.addTokenAccount(provider: .claude, label: "Saved", token: "sk-ant-session-token")
+        settings.updateProviderConfig(provider: .claude) { entry in
+            entry.claudeProfileConfigDirs = ["/tmp/claude-work"]
+        }
+
+        #expect(settings.effectiveSelectedTokenAccount(for: .claude) != nil)
+
+        settings.claudeActiveSource = .profileConfigDir(path: "/tmp/claude-work")
+        #expect(settings.effectiveSelectedTokenAccount(for: .claude) == nil)
+        #expect(ProviderTokenAccountSelection.selectedAccount(
+            provider: .claude,
+            settings: settings,
+            override: nil) == nil)
+
+        settings.claudeActiveSource = .ambient
+        #expect(settings.effectiveSelectedTokenAccount(for: .claude) != nil)
+    }
+
+    @Test
+    func `cost scan roots follow the fetch environment even for the default directory`() {
+        let base = ["HOME": "/Users/example"]
+
+        var defaultOptions = CostUsageScanner.Options()
+        let defaultKey = CostUsageFetcher.applyClaudeProfileScope(
+            to: &defaultOptions,
+            provider: .claude,
+            environment: base.merging(
+                [ClaudeConfigPaths.configDirectoryEnvironmentKey: "/Users/example/.claude"],
+                uniquingKeysWith: { _, new in new }))
+        #expect(defaultKey == nil)
+        #expect(defaultOptions.claudeProjectsRoots?.map(\.path)
+            .contains("/Users/example/.claude/projects") == true)
+
+        var scopedOptions = CostUsageScanner.Options()
+        let scopedKey = CostUsageFetcher.applyClaudeProfileScope(
+            to: &scopedOptions,
+            provider: .claude,
+            environment: base.merging(
+                [ClaudeConfigPaths.configDirectoryEnvironmentKey: "/tmp/claude-work"],
+                uniquingKeysWith: { _, new in new }))
+        #expect(scopedKey == "bfc1769a")
+        #expect(scopedOptions.claudeProjectsRoots?.map(\.path) == ["/tmp/claude-work/projects"])
+        #expect(scopedOptions.claudeCacheScopeKey == "bfc1769a")
+
+        var otherOptions = CostUsageScanner.Options()
+        let otherKey = CostUsageFetcher.applyClaudeProfileScope(
+            to: &otherOptions,
+            provider: .codex,
+            environment: base)
+        #expect(otherKey == nil)
+        #expect(otherOptions.claudeProjectsRoots == nil)
     }
 
     @Test

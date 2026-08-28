@@ -584,15 +584,18 @@ public struct CostUsageFetcher: Sendable {
     }
 
     /// A scoped Claude profile scans that profile's projects roots into a profile-partitioned cache;
-    /// the ambient scanner environment would silently blend accounts. Returns the profile scope key.
-    private static func applyClaudeProfileScope(
+    /// the ambient scanner environment would silently blend accounts. Roots always come from the passed
+    /// environment: explicitly selecting the default `~/.claude` directory must still beat an ambient
+    /// `CLAUDE_CONFIG_DIR` inherited by the process. Returns the profile scope key.
+    static func applyClaudeProfileScope(
         to options: inout CostUsageScanner.Options,
         provider: UsageProvider,
         environment: [String: String]) -> String?
     {
+        // Provider-specific by design: only Claude partitions local log scans by config-dir profile.
         guard provider == .claude else { return nil }
         let scopeKey = CostUsageScanner.claudeCacheScopeKey(environment: environment)
-        if options.claudeProjectsRoots == nil, scopeKey != nil {
+        if options.claudeProjectsRoots == nil {
             options.claudeProjectsRoots = CostUsageScanner.defaultClaudeProjectsRoots(
                 options: options,
                 environment: environment)

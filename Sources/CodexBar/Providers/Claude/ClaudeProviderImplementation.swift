@@ -180,6 +180,17 @@ struct ClaudeProviderImplementation: ProviderImplementation {
         ]
     }
 
+    /// "Default" inherits the app's ambient environment. When the process itself carries a
+    /// `CLAUDE_CONFIG_DIR`, labeling it `~/.claude` would be wrong — show the inherited directory.
+    static func defaultAccountDirectoryTitle(environment: [String: String]) -> String {
+        guard let ambient = environment[ClaudeConfigPaths.configDirectoryEnvironmentKey],
+              !ambient.isEmpty
+        else {
+            return "Default (~/.claude)"
+        }
+        return "Default (\(ClaudeConfigDirScope.abbreviatedConfigDirPath(ambient)), from environment)"
+    }
+
     @MainActor
     private static func claudeSwapStatusText(store: UsageStore, settings: SettingsStore) -> String? {
         guard settings.claudeSwapEnabled else { return nil }
@@ -312,7 +323,9 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                     around: [previousSource, context.settings.claudeResolvedActiveSource])
             })
         let accountDirectoryOptions = [
-            ProviderSettingsPickerOption(id: ambientDirectoryOptionID, title: "Default (~/.claude)"),
+            ProviderSettingsPickerOption(
+                id: ambientDirectoryOptionID,
+                title: Self.defaultAccountDirectoryTitle(environment: context.store.environmentBase)),
         ] + context.settings.claudeProfileConfigDirs.map {
             ProviderSettingsPickerOption(id: $0, title: ClaudeConfigDirScope.abbreviatedConfigDirPath($0))
         }
@@ -438,7 +451,7 @@ struct ClaudeProviderImplementation: ProviderImplementation {
         let ambientChecked = activeSource == .ambient
         var items = [
             MenuDescriptor.SubmenuItem(
-                title: "Default (~/.claude)",
+                title: Self.defaultAccountDirectoryTitle(environment: context.store.environmentBase),
                 action: .selectClaudeProfileDir(path: nil),
                 isEnabled: !ambientChecked,
                 isChecked: ambientChecked),
