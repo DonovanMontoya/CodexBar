@@ -486,9 +486,24 @@ struct ClaudeProfileConfigDirTests {
             scannerOptions: options,
             piScannerOptions: piOptions)
 
-        // The ambient default profile keeps merging home-level pi sessions; a selected profile must not.
+        let explicitDefault = try await CostUsageFetcher.loadTokenSnapshot(
+            provider: .claude,
+            environment: [
+                "HOME": env.root.path,
+                ClaudeConfigPaths.configDirectoryEnvironmentKey: env.root.path + "/.claude",
+            ],
+            now: day.addingTimeInterval(2),
+            historyDays: 1,
+            allowPricingRefresh: false,
+            includePiSessions: true,
+            scannerOptions: options,
+            piScannerOptions: piOptions)
+
+        // Only the truly unscoped default fetch merges home-level pi sessions; any selected config
+        // directory — including an explicitly selected default — excludes them.
         #expect(ambient.sessionTokens == 55)
         #expect(scoped.sessionTokens == 0)
+        #expect(explicitDefault.sessionTokens == 0)
     }
 
     @Test

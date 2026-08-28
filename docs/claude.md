@@ -155,6 +155,13 @@ t3code-style work/personal profiles), CodexBar can scope Claude usage to one of 
   credentials. A readable `.credentials.json` inside the directory also works; with neither, the profile falls
   back to delegated CLI refresh.
 - `claudeProfileConfigDirs` and `claudeActiveSource` are machine-local and never iCloud-synced.
+- Precedence with claude-swap: the two workflows are independent and claude-swap's is unchanged. claude-swap owns
+  multi-account *presentation* (its cards replace the ambient Claude card per its existing rules) and manages its
+  own credentials through `cswap`. The account-directory selection scopes the *ambient fetch* (credentials, identity,
+  CLI probes, local cost) that claude-swap does not manage. Enabling one does not disable the other; users of
+  claude-swap simply keep their existing workflow, and profile directories serve setups without external tooling.
+  A selected profile also excludes home-level pi/OMP session costs, which cannot be attributed to a directory;
+  only the truly unscoped Default fetch merges them (legacy behavior).
 
 Example:
 

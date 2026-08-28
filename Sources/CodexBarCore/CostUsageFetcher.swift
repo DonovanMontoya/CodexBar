@@ -464,7 +464,7 @@ public struct CostUsageFetcher: Sendable {
             overrideScannerOptions,
             provider: provider,
             codexHomePath: codexHomePath)
-        let claudeCacheScopeKey = Self.applyClaudeProfileScope(
+        Self.applyClaudeProfileScope(
             to: &options,
             provider: provider,
             environment: environment)
@@ -473,7 +473,7 @@ public struct CostUsageFetcher: Sendable {
         let shouldMergePiUsage = Self.shouldMergePiUsage(
             provider: provider,
             codexHomePath: codexHomePath,
-            claudeCacheScopeKey: claudeCacheScopeKey)
+            claudeConfigDirSelected: environment[ClaudeConfigPaths.configDirectoryEnvironmentKey]?.isEmpty == false)
         await Self.refreshPricingIfAllowed(
             options: PricingRefreshOptions(
                 provider: provider,
@@ -569,16 +569,17 @@ public struct CostUsageFetcher: Sendable {
         let piOptions: PiSessionCostScanner.Options
     }
 
-    /// Provider-specific by design: scoped Codex homes and scoped Claude profiles exclude ambient Pi
-    /// sessions from profile totals.
+    /// Provider-specific by design: scoped Codex homes and selected Claude config directories exclude
+    /// ambient Pi sessions from profile totals. Home-level pi/OMP sessions cannot be attributed to any
+    /// specific directory, so they merge only into the truly unscoped default Claude fetch.
     private static func shouldMergePiUsage(
         provider: UsageProvider,
         codexHomePath: String?,
-        claudeCacheScopeKey: String?) -> Bool
+        claudeConfigDirSelected: Bool) -> Bool
     {
         switch provider {
         case .codex: codexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-        case .claude: claudeCacheScopeKey == nil
+        case .claude: !claudeConfigDirSelected
         default: true
         }
     }
@@ -587,6 +588,7 @@ public struct CostUsageFetcher: Sendable {
     /// the ambient scanner environment would silently blend accounts. Roots always come from the passed
     /// environment: explicitly selecting the default `~/.claude` directory must still beat an ambient
     /// `CLAUDE_CONFIG_DIR` inherited by the process. Returns the profile scope key.
+    @discardableResult
     static func applyClaudeProfileScope(
         to options: inout CostUsageScanner.Options,
         provider: UsageProvider,
